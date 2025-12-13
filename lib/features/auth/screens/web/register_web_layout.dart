@@ -56,6 +56,7 @@ class _RegisterWebLayoutState extends State<RegisterWebLayout> {
               if (_otpController.isSheetVisible)
                 CurvedOtpSheet(
                   phoneNumber: _phoneNumber,
+                  userType: 'user',
                   onVerified: () {
                     Navigator.of(context).pushAndRemoveUntil(
                       MaterialPageRoute(builder: (context) => const UserDashboard()),

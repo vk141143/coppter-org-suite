@@ -48,23 +48,33 @@ class RoleNavigator {
     final prefs = await SharedPreferences.getInstance();
     final hasSeenIntro = prefs.getBool('hasSeenIntro') ?? false;
     
+    print('🚀 Getting initial screen...');
+    print('  Has seen intro: $hasSeenIntro');
+    
     // Always show intro on first launch or when not authenticated
     final isAuth = await SecureStorage.isAuthenticated();
+    print('  Is authenticated: $isAuth');
+    
     if (!hasSeenIntro || !isAuth) {
+      print('→ Showing AnimatedIntroScreen');
       return const AnimatedIntroScreen();
     }
 
-    
     final role = await SecureStorage.getUserRole();
+    print('  User role: $role');
     
     switch (role?.toLowerCase()) {
       case 'admin':
+        print('→ AUTO-NAVIGATING to AdminDashboard');
         return const AdminDashboard();
       case 'driver':
+        print('→ AUTO-NAVIGATING to DriverMainScreen');
         return const DriverMainScreen();
       case 'customer':
+        print('→ AUTO-NAVIGATING to UserDashboard');
         return const UserDashboard();
       default:
+        print('→ Showing LoginScreen');
         return const LoginScreen();
     }
   }

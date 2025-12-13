@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 
 class MapService {
-  static const String _baseUrl = 'http://13.232.241.195:8000/api';
+  static const String _baseUrl = 'http://13.233.195.173:8000/api';
   
   Future<String> getMapboxToken() async {
     final url = Uri.parse('$_baseUrl/mapbox-token');

@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../shared/widgets/custom_button.dart';
 import '../../../shared/widgets/custom_card.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/driver_service.dart';
 import 'otp_screen.dart';
 import 'web/driver_registration_web.dart';
 
@@ -30,8 +31,12 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
   // Step 2: Identity Verification
   String? _idType;
   final _idNumberController = TextEditingController();
+  final _aadharNumberController = TextEditingController();
+  final _panNumberController = TextEditingController();
   XFile? _idPhoto;
   XFile? _selfiePhoto;
+  XFile? _aadharDocument;
+  XFile? _panDocument;
 
   // Step 3: Professional Details
   final _experienceController = TextEditingController();
@@ -283,7 +288,7 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
                 labelText: 'Government ID Type *',
                 prefixIcon: Icon(Icons.badge_outlined),
               ),
-              items: ['Aadhar', 'Driving License', 'Voter ID', 'Passport'].map((id) {
+              items: ['Aadhar', 'Passport', 'Voter ID'].map((id) {
                 return DropdownMenuItem(value: id, child: Text(id));
               }).toList(),
               onChanged: (value) => setState(() => _idType = value),
@@ -293,15 +298,14 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
             TextFormField(
               controller: _idNumberController,
               decoration: const InputDecoration(
-                labelText: 'ID Number *',
+                labelText: 'Government ID Number *',
                 prefixIcon: Icon(Icons.numbers),
               ),
             ),
-            const SizedBox(height: 24),
-            
-            _buildPhotoUpload(theme, 'ID Photo', _idPhoto, (file) => setState(() => _idPhoto = file)),
             const SizedBox(height: 16),
-            _buildPhotoUpload(theme, 'Selfie Photo', _selfiePhoto, (file) => setState(() => _selfiePhoto = file)),
+            _buildPhotoUpload(theme, 'Government ID Photo *', _idPhoto, (file) => setState(() => _idPhoto = file)),
+            const SizedBox(height: 16),
+            _buildPhotoUpload(theme, 'Selfie Photo *', _selfiePhoto, (file) => setState(() => _selfiePhoto = file)),
           ],
         ),
       ),
@@ -779,25 +783,22 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
         return;
       }
       
-      print('📝 Preparing driver data...');
       setState(() => _isLoading = true);
       
       try {
-        
         final driverData = {
           'full_name': _nameController.text.trim(),
           'phone_number': _phoneController.text.trim(),
           'email': _emailController.text.trim(),
           'dob': _dobController.text.trim(),
           'address': _addressController.text.trim(),
-          'govt_id_type': _idType?.toLowerCase() ?? 'addhar',
+          'govt_id_type': _idType?.toLowerCase() ?? 'aadhar',
           'govt_id_number': _idNumberController.text.trim(),
           'years_of_experience': int.tryParse(_experienceController.text.trim()) ?? 0,
           'license_number': _licenseNumberController.text.trim(),
           'license_category': _licenseCategoryController.text.trim(),
           'license_expiry_date': _licenseExpiryController.text.trim(),
-          'previous_company': _previousCompanyController.text.trim(),
-          'vehicle_type': _vehicleType ?? 'Truck',
+          'vehicle_type': _vehicleType?.toLowerCase() ?? 'truck',
           'vehicle_number': _vehiclePlateController.text.trim(),
           'vehicle_model': _vehicleModelController.text.trim(),
           'vehicle_capacity': _vehicleCapacityController.text.trim(),
@@ -809,84 +810,44 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
           'upi_id': _upiController.text.trim(),
         };
         
-        print('📋 Driver Data: $driverData');
-        print('📸 Files to upload:');
-        print('  - driver_photo: ${_driverPhoto?.name ?? "MISSING"} ');
-        print('  - license_front: ${_licenseFrontPhoto?.name ?? "MISSING"}');
-        print('  - license_back: ${_licenseBackPhoto?.name ?? "MISSING"}');
-        print('  - govt_id_photo: ${_idPhoto?.name ?? "MISSING"}');
-        print('  - selfie_photo: ${_selfiePhoto?.name ?? "MISSING"}');
-        print('  - vehicle_photo: ${_vehiclePhoto?.name ?? "MISSING"}');
-        print('  - rc_book_photo: ${_v5cDocument?.name ?? "MISSING"}');
-        print('  - pollution_certificate_photo: ${_motCertificate?.name ?? "MISSING"}');
+        final driverService = DriverService();
+        final response = await driverService.registerDriverWithUpload(
+          driverData: driverData,
+          driverPhoto: _driverPhoto,
+          licenseFront: _licenseFrontPhoto,
+          licenseBack: _licenseBackPhoto,
+          govtIdPhoto: _idPhoto,
+          selfiePhoto: _selfiePhoto,
+          vehiclePhoto: _vehiclePhoto,
+          rcBookPhoto: _v5cDocument,
+          pollutionCertPhoto: _motCertificate,
+        );
         
-        final authService = AuthService();
-        
-        try {
-          print('🚀 Starting driver registration...');
-          final response = await authService.registerDriver(
-            driverData,
-            driverPhoto: _driverPhoto,
-            licenseFront: _licenseFrontPhoto,
-            licenseBack: _licenseBackPhoto,
-            vehiclePhoto: _vehiclePhoto,
-            idPhoto: _idPhoto,
-            selfiePhoto: _selfiePhoto,
-            v5cDocument: _v5cDocument,
-            motCertificate: _motCertificate,
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response['message'] ?? 'Registration successful!'),
+              backgroundColor: Colors.green,
+            ),
           );
-          print('✅ SUCCESS: Driver registration response: $response');
-          
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Registration successful!'), backgroundColor: Colors.green),
-            );
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(
-                builder: (context) => OTPScreen(
-                  phoneNumber: _phoneController.text,
-                  userType: 'Driver',
-                ),
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OTPScreen(
+                phoneNumber: _phoneController.text,
+                userType: 'Driver',
+                isRegistration: true,
               ),
-            );
-          }
-        } on TimeoutException catch (e) {
-          print('⏱️ TIMEOUT ERROR: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Server is taking too long to respond. Please check with backend team.'),
-                backgroundColor: Colors.orange,
-                duration: Duration(seconds: 5),
-              ),
-            );
-          }
-        } catch (e) {
-          print('❌ REGISTRATION FAILED: $e');
-          if (mounted) {
-            String errorMsg = 'Registration failed';
-            if (e.toString().contains('Failed to fetch')) {
-              errorMsg = 'Cannot connect to server. Please check if backend is running.';
-            } else if (e.toString().contains('TimeoutException')) {
-              errorMsg = 'Server timeout. Backend may be processing slowly.';
-            } else {
-              errorMsg = 'Error: ${e.toString()}';
-            }
-            
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(errorMsg),
-                backgroundColor: Colors.red,
-                duration: const Duration(seconds: 5),
-              ),
-            );
-          }
+            ),
+          );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Unexpected error: ${e.toString()}'), backgroundColor: Colors.red),
+            SnackBar(
+              content: Text(e.toString().replaceAll('Exception: ', '')),
+              backgroundColor: Colors.red,
+            ),
           );
         }
       } finally {
@@ -908,6 +869,8 @@ class _DriverRegistrationScreenState extends State<DriverRegistrationScreen> {
     _dobController.dispose();
     _addressController.dispose();
     _idNumberController.dispose();
+    _aadharNumberController.dispose();
+    _panNumberController.dispose();
     _experienceController.dispose();
     _licenseNumberController.dispose();
     _licenseCategoryController.dispose();

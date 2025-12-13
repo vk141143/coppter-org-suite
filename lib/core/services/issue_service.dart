@@ -15,12 +15,17 @@ class IssueService {
     required List<String> images,
     required double amount,
   }) async {
-    final token = await _authService.getToken();
+    final token = await _authService.getToken(forRole: 'customer');
+    
+    if (token == null || token.isEmpty) {
+      throw Exception('Customer authentication required. Please login.');
+    }
+    
     final url = Uri.parse('$_baseUrl/customer/issue');
     
     if (kDebugMode) {
       print('📡 POST Request: $url');
-      print('🔑 Token: $token');
+      print('🔑 Customer Token: ${token.substring(0, 20)}...');
       print('📦 Body: categoryId=$categoryId, desc=$description, location=$pickupLocation, amount=$amount');
     }
     
@@ -29,7 +34,7 @@ class IssueService {
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
+        'Authorization': 'Bearer $token',
       },
       body: jsonEncode({
         'category_id': categoryId,
@@ -57,19 +62,24 @@ class IssueService {
   }
 
   Future<List<Map<String, dynamic>>> getIssues() async {
-    final token = await _authService.getToken();
+    final token = await _authService.getToken(forRole: 'customer');
+    
+    if (token == null || token.isEmpty) {
+      throw Exception('Customer authentication required. Please login.');
+    }
+    
     final url = Uri.parse('$_baseUrl/issues/my-issues');
     
     if (kDebugMode) {
       print('📡 GET Request: $url');
-      print('🔑 Token: ${token?.substring(0, 20)}...');
+      print('🔑 Customer Token: ${token.substring(0, 20)}...');
     }
     
     final response = await http.get(
       url,
       headers: {
         'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
+        'Authorization': 'Bearer $token',
       },
     );
     

@@ -100,7 +100,11 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _user = await _authService.updateProfile(data);
+      _user = await _authService.updateProfile(
+        fullName: data['fullName'] ?? data['full_name'] ?? '',
+        email: data['email'] ?? '',
+        phoneNumber: data['phoneNumber'] ?? data['phone_number'] ?? '',
+      );
       _isLoading = false;
       notifyListeners();
       return true;

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../shared/widgets/custom_button.dart';
@@ -14,6 +15,9 @@ import '../widgets/submit_transition_animation.dart';
 import 'driver_selection_screen.dart';
 import '../../../core/services/issue_service.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/services/api_helper.dart';
+import '../../../core/utils/debug_token_helper.dart';
+import '../../../core/services/category_service.dart';
 
 class RaiseComplaintWeb extends StatefulWidget {
   final XFile? image;
@@ -30,6 +34,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
   final _locationController = TextEditingController();
   
   String? _selectedCategory;
+  int? _selectedCategoryId;
   List<XFile> _selectedImages = [];
   bool _isLoading = false;
   bool _autoSaved = false;
@@ -40,16 +45,65 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
   bool _showChatPanel = false;
   double _negotiatedPrice = 0;
   final IssueService _issueService = IssueService();
+  final CategoryService _categoryService = CategoryService();
+  List<Map<String, dynamic>> _categories = [];
 
   @override
   void initState() {
     super.initState();
+    _validateCustomerAccess();
     if (widget.image != null) {
       _selectedImages.add(widget.image!);
     }
     _startAutoSave();
     _descriptionController.addListener(_onFormChanged);
     _locationController.addListener(_onFormChanged);
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = await _categoryService.getCategories();
+      if (mounted) {
+        setState(() => _categories = categories);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load categories: $e')),
+        );
+      }
+    }
+  }
+  
+  Future<void> _validateCustomerAccess() async {
+    // Debug: Print token status
+    await DebugTokenHelper.printTokenStatus();
+    
+    final hasCustomerToken = await DebugTokenHelper.hasValidCustomerToken();
+    if (!hasCustomerToken) {
+      if (kDebugMode) print('⚠️ No customer token found - showing warning');
+      
+      if (mounted) {
+        // Just show warning, don't logout
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Warning: No customer authentication detected. Some features may not work.'),
+            backgroundColor: Colors.orange,
+            duration: const Duration(seconds: 3),
+            action: SnackBarAction(
+              label: 'Login',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.of(context).pushNamed('/login');
+              },
+            ),
+          ),
+        );
+      }
+    } else {
+      if (kDebugMode) print('✅ Customer authentication validated');
+    }
   }
 
   void _startAutoSave() {
@@ -57,11 +111,12 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
   }
 
   void _onFormChanged() {
-    setState(() => _autoSaved = false);
+    if (mounted) setState(() => _autoSaved = false);
   }
 
   void _autoSaveDraft() {
     if (_selectedCategory != null || _descriptionController.text.isNotEmpty || _locationController.text.isNotEmpty) {
+      if (!mounted) return;
       setState(() => _autoSaved = true);
       Future.delayed(const Duration(seconds: 2), () {
         if (mounted) setState(() => _autoSaved = false);
@@ -166,7 +221,9 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
                               currentPrice: _acceptedPrice!['recommended_price'].toDouble(),
                               negotiatedPrice: _negotiatedPrice,
                               onCallTap: _handleCall,
-                              onChatTap: () => setState(() => _showChatPanel = true),
+                              onChatTap: () {
+                    if (mounted) setState(() => _showChatPanel = true);
+                  },
                               onTrackTap: _handleTrack,
                               onNegotiateTap: _showNegotiateDialog,
                               onCancelTap: _handleCancel,
@@ -186,12 +243,16 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
                   driverName: 'Mike Johnson',
                   currentPrice: _acceptedPrice!['recommended_price'].toDouble(),
                   negotiatedPrice: _negotiatedPrice,
-                  onClose: () => setState(() => _showChatPanel = false),
+                  onClose: () {
+                    if (mounted) setState(() => _showChatPanel = false);
+                  },
                   onNegotiate: (price) {
-                    setState(() {
-                      _negotiatedPrice = price;
-                      _showChatPanel = false;
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _negotiatedPrice = price;
+                        _showChatPanel = false;
+                      });
+                    }
                     _showNegotiationSuccess(price);
                   },
                 ),
@@ -280,8 +341,14 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
           const SizedBox(height: 20),
           WebCategorySelector(
             selectedCategory: _selectedCategory,
-            onCategorySelected: (category) {
-              setState(() => _selectedCategory = category);
+            categories: _categories,
+            onCategorySelected: (categoryName, categoryId) {
+              if (mounted) {
+                setState(() {
+                  _selectedCategory = categoryName;
+                  _selectedCategoryId = categoryId;
+                });
+              }
               _onFormChanged();
             },
           ),
@@ -352,7 +419,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
           WebLocationMap(
             location: _locationController.text,
             onLocationTap: () {
-              setState(() => _locationController.text = '123 Main Street, City, State 12345');
+              if (mounted) setState(() => _locationController.text = '123 Main Street, City, State 12345');
               _onFormChanged();
             },
           ),
@@ -377,7 +444,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
           WebDragDropUploader(
             images: _selectedImages,
             onImagesChanged: (images) {
-              setState(() => _selectedImages = images);
+              if (mounted) setState(() => _selectedImages = images);
               _onFormChanged();
             },
           ),
@@ -536,9 +603,11 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
             location: _locationController.text.isEmpty ? 'Location not set' : _locationController.text,
             onPriceAccepted: (price) {
               Navigator.of(context).pop();
-              setState(() {
-                _acceptedPrice = price;
-              });
+              if (mounted) {
+                setState(() {
+                  _acceptedPrice = price;
+                });
+              }
             },
           ),
         ),
@@ -549,21 +618,24 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
   void _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_acceptedPrice == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please get AI price estimate first')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please get AI price estimate first')),
+        );
+      }
       return;
     }
     
+    if (!mounted) return;
     setState(() => _isLoading = true);
     
     try {
-      final categoryIndex = AppConstants.wasteCategories.indexWhere(
-        (cat) => cat['name'] == _selectedCategory,
-      );
+      if (_selectedCategoryId == null) {
+        throw Exception('Please select a valid category');
+      }
       
       final response = await _issueService.createIssue(
-        categoryId: categoryIndex,
+        categoryId: _selectedCategoryId!,
         description: _descriptionController.text,
         pickupLocation: _locationController.text,
         images: _selectedImages.map((img) => img.path).toList(),
@@ -691,7 +763,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
             onPressed: () {
               final price = double.tryParse(priceController.text) ?? 0;
               if (price > 0) {
-                setState(() => _negotiatedPrice = price);
+                if (mounted) setState(() => _negotiatedPrice = price);
                 Navigator.pop(context);
                 _showNegotiationSuccess(price);
               }
@@ -704,6 +776,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
   }
 
   void _showNegotiationSuccess(double price) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Negotiation offer of £$price sent to driver'),
@@ -742,6 +815,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
       }
 
       Position position = await Geolocator.getCurrentPosition();
+      if (!mounted) return;
       setState(() {
         _locationController.text = '${position.latitude}, ${position.longitude}';
       });
@@ -778,17 +852,19 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              setState(() {
-                _isComplaintSubmitted = false;
-                _negotiatedPrice = 0;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Complaint cancelled successfully'),
-                  backgroundColor: Colors.red,
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              if (mounted) {
+                setState(() {
+                  _isComplaintSubmitted = false;
+                  _negotiatedPrice = 0;
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Complaint cancelled successfully'),
+                    backgroundColor: Colors.red,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Yes, Cancel'),
@@ -804,6 +880,7 @@ class _RaiseComplaintWebState extends State<RaiseComplaintWeb> {
     _descriptionController.dispose();
     _locationController.dispose();
     _issueService.dispose();
+    _categoryService.dispose();
     super.dispose();
   }
 }

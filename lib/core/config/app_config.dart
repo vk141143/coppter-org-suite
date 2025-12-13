@@ -3,8 +3,8 @@ import 'package:flutter/foundation.dart';
 
 class AppConfig {
   // Backend API URLs - Update these for your deployment
-  static const String _customerApiUrl = 'http://43.205.99.220:8000/api';
-  static const String _technicianApiUrl = 'http://43.205.99.220:8001/api';
+  static const String _customerApiUrl = 'http://13.233.195.173:8000/api';
+  static const String _technicianApiUrl = 'http://3.110.63.139:8001/api';
   
   /// Customer backend API (port 8000)
   static String get customerBaseUrl {

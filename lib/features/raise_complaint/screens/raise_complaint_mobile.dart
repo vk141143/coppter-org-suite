@@ -8,6 +8,7 @@ import '../widgets/submit_transition_animation.dart';
 import '../screens/driver_selection_screen.dart';
 import '../../user/screens/track_complaint_screen.dart';
 import '../../../core/services/issue_service.dart';
+import '../../../core/services/category_service.dart';
 
 class RaiseComplaintMobile extends StatefulWidget {
   final XFile? image;
@@ -24,10 +25,13 @@ class _RaiseComplaintMobileState extends State<RaiseComplaintMobile> with Ticker
   final _locationController = TextEditingController();
   
   String? _selectedCategory;
+  int? _selectedCategoryId;
   List<XFile> _selectedImages = [];
   bool _isLoading = false;
   Map<String, dynamic>? _acceptedPrice;
   final IssueService _issueService = IssueService();
+  final CategoryService _categoryService = CategoryService();
+  List<Map<String, dynamic>> _categories = [];
   
   late AnimationController _animationController;
   late Animation<double> _scaleAnimation;
@@ -45,6 +49,22 @@ class _RaiseComplaintMobileState extends State<RaiseComplaintMobile> with Ticker
     _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
       CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    try {
+      final categories = await _categoryService.getCategories();
+      if (mounted) {
+        setState(() => _categories = categories);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load categories: $e')),
+        );
+      }
+    }
   }
 
   @override
@@ -126,19 +146,25 @@ class _RaiseComplaintMobileState extends State<RaiseComplaintMobile> with Ticker
               contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 16),
             ),
             isExpanded: true,
-            items: AppConstants.wasteCategories.map((category) {
+            items: _categories.map((category) {
               return DropdownMenuItem<String>(
                 value: category['name'],
                 child: Row(
                   children: [
-                    Text(category['icon'], style: const TextStyle(fontSize: 18)),
+                    const Icon(Icons.category, size: 18),
                     const SizedBox(width: 8),
                     Flexible(child: Text(category['name'], overflow: TextOverflow.ellipsis)),
                   ],
                 ),
               );
             }).toList(),
-            onChanged: (value) => setState(() => _selectedCategory = value),
+            onChanged: (value) {
+              final category = _categories.firstWhere((cat) => cat['name'] == value);
+              setState(() {
+                _selectedCategory = value;
+                _selectedCategoryId = category['id'];
+              });
+            },
             validator: (value) => value == null || value.isEmpty ? 'Please select a waste category' : null,
           ),
         ],
@@ -418,12 +444,12 @@ class _RaiseComplaintMobileState extends State<RaiseComplaintMobile> with Ticker
     setState(() => _isLoading = true);
     
     try {
-      final categoryIndex = AppConstants.wasteCategories.indexWhere(
-        (cat) => cat['name'] == _selectedCategory,
-      );
+      if (_selectedCategoryId == null) {
+        throw Exception('Please select a valid category');
+      }
       
       final response = await _issueService.createIssue(
-        categoryId: categoryIndex,
+        categoryId: _selectedCategoryId!,
         description: _descriptionController.text,
         pickupLocation: _locationController.text,
         images: _selectedImages.map((img) => img.path).toList(),
@@ -470,6 +496,7 @@ class _RaiseComplaintMobileState extends State<RaiseComplaintMobile> with Ticker
     _locationController.dispose();
     _animationController.dispose();
     _issueService.dispose();
+    _categoryService.dispose();
     super.dispose();
   }
 }

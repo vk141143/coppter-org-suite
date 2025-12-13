@@ -5,6 +5,8 @@ import '../../../core/constants/brand_colors.dart';
 import '../../../shared/widgets/custom_card.dart';
 import '../../../shared/widgets/custom_button.dart';
 import '../../auth/screens/login_screen.dart';
+import '../../../core/services/auth_service.dart';
+import 'package:flutter/foundation.dart';
 
 class DriverProfileScreen extends StatefulWidget {
   const DriverProfileScreen({super.key});
@@ -14,20 +16,72 @@ class DriverProfileScreen extends StatefulWidget {
 }
 
 class _DriverProfileScreenState extends State<DriverProfileScreen> {
+  final AuthService _authService = AuthService();
   bool _isAvailable = true;
   bool _notificationsEnabled = true;
+  bool _isLoading = true;
   
-  String _driverName = 'Mike Johnson';
-  String _driverId = 'DR001234';
-  String _phoneNumber = '+44 7700 900123';
-  String _email = 'mike.johnson@liftaway.com';
-  String _vehicleNumber = 'WM-1234';
-  String _licenseNumber = 'DL123456789';
+  String _driverName = 'Loading...';
+  String _driverId = '';
+  String _phoneNumber = '';
+  String _email = '';
+  String _vehicleNumber = '';
+  String _licenseNumber = '';
+  Map<String, dynamic>? _profileData;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDriverProfile();
+  }
+
+  Future<void> _loadDriverProfile() async {
+    try {
+      if (kDebugMode) print('🔄 Loading driver profile...');
+      final profile = await _authService.getDriverProfile();
+      if (kDebugMode) print('✅ Driver profile loaded: $profile');
+      
+      setState(() {
+        _profileData = profile;
+        _driverName = profile['full_name'] ?? 'Driver';
+        _driverId = profile['id']?.toString() ?? '';
+        _phoneNumber = profile['phone_number'] ?? '';
+        _email = profile['email'] ?? '';
+        _isAvailable = profile['is_active'] ?? true;
+        _isLoading = false;
+      });
+    } catch (e) {
+      if (kDebugMode) print('❌ Error loading driver profile: $e');
+      setState(() {
+        _driverName = 'Error loading profile';
+        _isLoading = false;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load profile: $e')),
+        );
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final themeProvider = Provider.of<ThemeProvider>(context);
+    
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Driver Profile'),
+          elevation: 0,
+          backgroundColor: Colors.transparent,
+          automaticallyImplyLeading: false,
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
     
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -44,6 +98,13 @@ class _DriverProfileScreenState extends State<DriverProfileScreen> {
             elevation: 0,
             backgroundColor: Colors.transparent,
             automaticallyImplyLeading: false,
+            actions: [
+              IconButton(
+                onPressed: _loadDriverProfile,
+                icon: const Icon(Icons.refresh),
+                tooltip: 'Refresh Profile',
+              ),
+            ],
           ),
           body: Container(
             decoration: BoxDecoration(

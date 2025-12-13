@@ -7,9 +7,9 @@ import '../utils/token_storage.dart';
 import 'mock_auth_service.dart';
 
 class AuthService {
-  static const String _customerBaseUrl = 'http://13.232.241.195:8000/api';
-  static const String _driverBaseUrl = 'http://13.232.241.195:8001/api';
-  static const String _adminBaseUrl = 'http://13.232.241.195:8001/api';
+  static const String _customerBaseUrl = 'http://13.233.195.173:8000/api';
+  static const String _driverBaseUrl = 'http://3.110.63.139:8001/api';
+  static const String _adminBaseUrl = 'http://3.110.63.139:8001/api';
   static const String _tokenKey = 'auth_token';
   static const String _userIdKey = 'user_id';
 
@@ -24,7 +24,7 @@ class AuthService {
       body = {'phone_number': phone};
     } else if (userType.toLowerCase() == 'driver') {
       baseUrl = _driverBaseUrl;
-      endpoint = '/auth/login/driver';
+      endpoint = '/auth/login/driver';  // Correct working endpoint
       body = {'phone_number': phone};
     } else {
       baseUrl = _customerBaseUrl;
@@ -46,22 +46,35 @@ class AuthService {
     if (kDebugMode) print('📥 Response status: ${response.statusCode}');
     if (kDebugMode) print('📥 Response body: ${response.body}');
     
-    if (response.statusCode == 404 && userType.toLowerCase() == 'admin') {
-      if (kDebugMode) print('⚠️ Admin login endpoint not found');
-      
-      // Use mock for development
-      if (MockAuthService.isMockEnabled) {
-        if (kDebugMode) print('🎭 Falling back to mock authentication');
-        return await MockAuthService.mockAdminLogin(phone);
+    // Handle 404 errors for different user types
+    if (response.statusCode == 404) {
+      if (userType.toLowerCase() == 'admin') {
+        if (kDebugMode) print('⚠️ Admin login endpoint not found');
+        
+        // Use mock for development
+        if (MockAuthService.isMockEnabled) {
+          if (kDebugMode) print('🎭 Falling back to mock authentication');
+          return await MockAuthService.mockAdminLogin(phone);
+        }
+        
+        throw Exception('Admin authentication not configured. Please contact administrator.');
+      } else if (userType.toLowerCase() == 'driver') {
+        if (kDebugMode) print('⚠️ Driver login endpoint not found, trying alternatives...');
+        
+        throw Exception('Driver login endpoint not found. Please contact support.');
       }
-      
-      throw Exception('Admin authentication not configured. Please contact administrator.');
     }
     
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = jsonDecode(response.body);
       if (kDebugMode) print('✅ Login response: $data');
       
+      // For driver/admin, just confirm OTP was sent - DON'T save tokens yet
+      if (userType.toLowerCase() == 'driver' || userType.toLowerCase() == 'admin') {
+        return {'success': true, 'message': 'OTP sent successfully', 'data': data};
+      }
+      
+      // Only save tokens for customer (direct login)
       if (data['token'] != null) {
         await _saveToken(data['token']);
       }
@@ -79,135 +92,208 @@ class AuthService {
     }
   }
 
+  Future<bool> verifyLogin({
+    required String phoneNumber,
+    required String otp,
+    required String userType,
+  }) async {
+    try {
+      String baseUrl;
+      String endpoint;
+      
+      if (userType.toLowerCase() == 'driver') {
+        baseUrl = _driverBaseUrl;
+        endpoint = '/auth/verify-login/driver';  // Correct working endpoint
+      } else if (userType.toLowerCase() == 'admin') {
+        baseUrl = _adminBaseUrl;
+        endpoint = '/auth/verify-login/admin';
+      } else {
+        baseUrl = _customerBaseUrl;
+        endpoint = '/auth/verify-login/customer';
+      }
+      
+      final url = Uri.parse('$baseUrl$endpoint');
+      
+      if (kDebugMode) print('📡 POST $url');
+      if (kDebugMode) print('📦 Body: {phone_number: $phoneNumber, otp: $otp}');
+      
+      final response = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: jsonEncode({'phone_number': phoneNumber, 'otp': otp}),
+      );
+      
+      if (kDebugMode) print('📥 Status: ${response.statusCode}');
+      if (kDebugMode) print('📥 Body: ${response.body}');
+      
+      final data = jsonDecode(response.body);
+      if (kDebugMode) print('🔍 Parsed data: $data');
+      if (kDebugMode) print('🔍 Success field: ${data['success']} (type: ${data['success'].runtimeType})');
+      
+      // Check for API error response first
+      if (response.statusCode != 200 || data['success'] != true) {
+        final errorMessage = data['message'] ?? 
+                            data['error']?['error_message'] ?? 
+                            'OTP verification failed';
+        if (kDebugMode) print('❌ API returned error - Status: ${response.statusCode}, Success: ${data['success']}');
+        if (kDebugMode) print('❌ Error message: $errorMessage');
+        if (kDebugMode) print('❌ THROWING EXCEPTION NOW');
+        throw Exception(errorMessage);
+      }
+      
+      if (kDebugMode) print('✅ API returned success=true, proceeding...');
+      
+      // Verify we have a valid token
+      String? token;
+      if (data['access_token'] != null) {
+        token = data['access_token'];
+      } else if (data['token'] != null) {
+        token = data['token'];
+      }
+      
+      if (token == null || token.isEmpty) {
+        if (kDebugMode) print('❌ No token in response');
+        throw Exception('Invalid OTP - no token received');
+      }
+      
+      if (token.length < 10) {
+        if (kDebugMode) print('❌ Invalid token length');
+        throw Exception('Invalid token received');
+      }
+      
+      await TokenStorage.saveToken(token, role: userType.toLowerCase());
+      
+      if (data['refresh_token'] != null) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('refresh_${userType.toLowerCase()}', data['refresh_token']);
+      }
+      
+      if (data['driver'] != null) {
+        await _saveUserData(data['driver']);
+      } else if (data['user'] != null) {
+        await _saveUserData(data['user']);
+      }
+      
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_phone', phoneNumber);
+      
+      if (kDebugMode) print('✅ OTP verified successfully');
+      return true;
+    } catch (e) {
+      if (kDebugMode) print('❌ verifyLogin exception: $e');
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
   Future<Map<String, dynamic>> verifyOTP(String phone, String otp, String endpoint, {String? userType}) async {
     String baseUrl;
+    String actualEndpoint;
     Map<String, dynamic> body;
     
     if (userType?.toLowerCase() == 'admin') {
       baseUrl = _adminBaseUrl;
+      actualEndpoint = '/auth/verify-login/admin';
       body = {'phone_number': phone, 'otp': otp};
     } else if (userType?.toLowerCase() == 'driver') {
       baseUrl = _driverBaseUrl;
+      actualEndpoint = '/auth/verify-login/driver';
       body = {'phone_number': phone, 'otp': otp};
     } else {
       baseUrl = _customerBaseUrl;
+      actualEndpoint = endpoint;
       body = {'phone_number': phone, 'otp_code': otp};
     }
     
-    final url = Uri.parse('$baseUrl$endpoint');
+    final url = Uri.parse('$baseUrl$actualEndpoint');
     
-    if (kDebugMode) print('📡 POST Request: $url');
+    if (kDebugMode) print('📡 POST $url');
     if (kDebugMode) print('📦 Body: $body');
     
     final response = await http.post(
       url,
-      headers: {'Content-Type': 'application/json', 'Accept': 'application/json'},
+      headers: {'Content-Type': 'application/json'},
       body: jsonEncode(body),
     );
     
-    if (kDebugMode) print('📥 Response status: ${response.statusCode}');
-    if (kDebugMode) print('📥 Response body: ${response.body}');
+    if (kDebugMode) print('📥 Status: ${response.statusCode}');
+    if (kDebugMode) print('📥 Body: ${response.body}');
     
     if (response.statusCode == 404 && userType?.toLowerCase() == 'admin') {
-      if (kDebugMode) print('⚠️ Admin endpoint not found - Backend needs admin auth implementation');
-      
-      // Use mock for development
       if (MockAuthService.isMockEnabled) {
-        if (kDebugMode) print('🎭 Falling back to mock OTP verification');
         final mockResult = await MockAuthService.mockAdminVerifyOTP(phone, otp);
-        
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('user_phone', phone);
-        
         return mockResult;
       }
-      
-      throw Exception('Admin authentication not configured on server. Please contact administrator.');
+      throw Exception('Admin authentication not configured');
     }
     
-    if (response.statusCode >= 200 && response.statusCode < 300) {
-      String token;
-      
-      try {
-        final jsonData = jsonDecode(response.body);
-        
-        // Extract token (support multiple field names)
-        if (jsonData is Map && jsonData.containsKey('token')) {
-          token = jsonData['token'];
-        } else if (jsonData is Map && jsonData.containsKey('access_token')) {
-          token = jsonData['access_token'];
-        } else if (jsonData is String) {
-          token = jsonData;
-        } else {
-          token = response.body.replaceAll('"', '');
-        }
-        
-        // Extract and save role from response
-        String? responseRole;
-        if (jsonData is Map && jsonData.containsKey('role')) {
-          responseRole = jsonData['role'];
-          if (kDebugMode) print('📥 Backend returned role: $responseRole');
-        }
-        
-        // Extract role from JWT token for validation
-        final jwtPayload = TokenStorage.decodeJWT(token);
-        String? jwtRole;
-        if (jwtPayload != null && jwtPayload.containsKey('role')) {
-          jwtRole = jwtPayload['role'];
-          if (kDebugMode) print('🔍 JWT token contains role: $jwtRole');
-        }
-        
-        // Determine correct role (prioritize JWT, then response, then userType)
-        final correctRole = jwtRole ?? responseRole ?? userType?.toLowerCase();
-        
-        if (correctRole != null) {
-          await TokenStorage.saveUserRole(correctRole);
-          if (kDebugMode) print('💾 Saved role: $correctRole');
-          
-          // Warn if mismatch between response and JWT
-          if (responseRole != null && jwtRole != null && responseRole != jwtRole) {
-            if (kDebugMode) print('⚠️ Role mismatch! Response: $responseRole, JWT: $jwtRole');
-          }
-        } else {
-          if (kDebugMode) print('⚠️ No role found in response or JWT');
-        }
-        
-        // Extract and save user data
-        if (jsonData is Map && jsonData.containsKey('user')) {
-          await _saveUserData(jsonData['user']);
-          if (kDebugMode) print('💾 Saved user data from response');
-        }
-      } catch (e) {
-        token = response.body.replaceAll('"', '');
-      }
-      
-      if (kDebugMode) print('💾 Saving token: ${token.substring(0, token.length > 20 ? 20 : token.length)}... (Full length: ${token.length})');
-      await _saveToken(token);
-      
-      // Verify token was saved
-      final savedToken = await getToken();
-      if (kDebugMode) print('✅ Token saved successfully: ${savedToken != null && savedToken.isNotEmpty}');
-      
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_phone', phone);
-      
-      final user = await getUserProfile();
-      return {'token': token, 'user': user};
-    } else {
-      final error = jsonDecode(response.body);
-      final errorMsg = error['message'] ?? error['error']?['error_message'] ?? 'OTP verification failed';
-      if (kDebugMode) print('❌ Error: $errorMsg');
-      throw Exception(errorMsg);
+    if (response.statusCode != 200) {
+      throw Exception('OTP verification failed');
     }
+    
+    final data = jsonDecode(response.body);
+    
+    if (kDebugMode) {
+      print('🔍 Response data: $data');
+      print('🔍 success: ${data['success']}');
+      print('🔍 access_token: ${data['access_token']}');
+    }
+    
+    if (data['success'] != true) {
+      if (kDebugMode) print('❌ Backend returned success=false');
+      throw Exception('Invalid OTP');
+    }
+    
+    final token = data['access_token'];
+    
+    if (token == null || token is! String || token.length < 20) {
+      if (kDebugMode) print('❌ No valid access_token in response');
+      throw Exception('Invalid OTP');
+    }
+    
+    if (kDebugMode) print('✅ Token: ${token.substring(0, 20)}...');
+    
+    await TokenStorage.saveToken(token, role: userType?.toLowerCase());
+    
+    final savedToken = await TokenStorage.getToken(forRole: userType?.toLowerCase());
+    if (savedToken != token) {
+      if (kDebugMode) print('❌ Token save failed');
+      throw Exception('Failed to save token');
+    }
+    
+    if (kDebugMode) print('✅ Token saved');
+    
+    if (data['refresh_token'] != null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('refresh_${userType?.toLowerCase()}', data['refresh_token']);
+    }
+    
+    if (data['driver'] != null) {
+      await _saveUserData(data['driver']);
+    } else if (data['user'] != null) {
+      await _saveUserData(data['user']);
+    }
+    
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_phone', phone);
+    
+    return {'token': token, 'user': data['driver'] ?? data['user']};
   }
 
   Future<void> resendOTP(String phone, {String? userType}) async {
     String baseUrl;
     String endpoint;
     
-    if (userType?.toLowerCase() == 'driver') {
+    if (userType?.toLowerCase() == 'admin') {
+      baseUrl = _adminBaseUrl;
+      endpoint = '/auth/resend-otp/admin';
+    } else if (userType?.toLowerCase() == 'driver') {
       baseUrl = _driverBaseUrl;
-      endpoint = '/auth/resend-otp/driver';
+      endpoint = '/auth/resend-otp/driver';  // Correct endpoint for driver
     } else {
       baseUrl = _customerBaseUrl;
       endpoint = '/auth/resend-otp/';
@@ -446,8 +532,15 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>> getUserProfile() async {
-    final token = await getToken();
     final prefs = await SharedPreferences.getInstance();
+    
+    // Auto-detect role from existing tokens
+    String? role = await TokenStorage.getUserRole();
+    role ??= 'customer';
+    if (kDebugMode) print('🔍 Active role: $role');
+    
+    // Get token for specific role
+    final token = await getToken(forRole: role);
     
     if (token == null || token.isEmpty) {
       return {
@@ -455,14 +548,23 @@ class AuthService {
         'full_name': prefs.getString('user_full_name') ?? 'User',
         'email': prefs.getString('user_email') ?? 'user@example.com',
         'phone_number': prefs.getString('user_phone') ?? '',
-        'role': prefs.getString('user_role') ?? 'customer',
+        'role': role,
         'is_active': prefs.getBool('user_is_active') ?? true,
         'is_approved': prefs.getBool('user_is_approved') ?? true,
       };
     }
     
     try {
-      final url = Uri.parse('$_customerBaseUrl/profile/');
+      String baseUrl;
+      if (role == 'admin') {
+        baseUrl = _adminBaseUrl;
+      } else if (role == 'driver') {
+        baseUrl = _driverBaseUrl;
+      } else {
+        baseUrl = _customerBaseUrl;
+      }
+      
+      final url = Uri.parse('$baseUrl/profile/');
       if (kDebugMode) print('📡 GET Request: $url');
       if (kDebugMode) print('🔑 Token: $token');
       
@@ -472,7 +574,7 @@ class AuthService {
           'Authorization': 'Bearer $token',
           'Accept': 'application/json',
         },
-      );
+      ).timeout(const Duration(seconds: 5));
       
       if (kDebugMode) print('📥 Response status: ${response.statusCode}');
       if (kDebugMode) print('📥 Response body: ${response.body}');
@@ -491,10 +593,42 @@ class AuthService {
       'full_name': prefs.getString('user_full_name') ?? 'User',
       'email': prefs.getString('user_email') ?? 'user@example.com',
       'phone_number': prefs.getString('user_phone') ?? '',
-      'role': prefs.getString('user_role') ?? 'customer',
+      'role': role,
       'is_active': prefs.getBool('user_is_active') ?? true,
       'is_approved': prefs.getBool('user_is_approved') ?? true,
     };
+  }
+
+  Future<Map<String, dynamic>> getDriverProfile() async {
+    final token = await getToken(forRole: 'driver');
+    
+    if (token == null || token.isEmpty) {
+      throw Exception('Driver not authenticated');
+    }
+    
+    final url = Uri.parse('$_driverBaseUrl/profile/');
+    if (kDebugMode) print('📡 GET Request: $url');
+    if (kDebugMode) print('🔑 Token: ${token.substring(0, 20)}...');
+    
+    final response = await http.get(
+      url,
+      headers: {
+        'Authorization': 'Bearer $token',
+        'Accept': 'application/json',
+      },
+    );
+    
+    if (kDebugMode) print('📥 Response status: ${response.statusCode}');
+    if (kDebugMode) print('📥 Response body: ${response.body}');
+    
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body);
+      await _saveUserData(data);
+      return data;
+    } else {
+      final error = jsonDecode(response.body);
+      throw Exception(error['message'] ?? error['error']?['error_message'] ?? 'Failed to fetch driver profile');
+    }
   }
 
   Future<Map<String, dynamic>> updateProfile({
@@ -502,7 +636,7 @@ class AuthService {
     required String email,
     required String phoneNumber,
   }) async {
-    final token = await getToken();
+    final token = await getToken(forRole: 'customer');
     
     final data = {
       'full_name': fullName,
@@ -577,8 +711,8 @@ class AuthService {
     );
   }
 
-  Future<void> _saveToken(String token) async {
-    await TokenStorage.saveToken(token);
+  Future<void> _saveToken(String token, {String? role}) async {
+    await TokenStorage.saveToken(token, role: role);
   }
 
   Future<void> _saveUserId(String userId) async {
@@ -592,13 +726,13 @@ class AuthService {
     await prefs.setString('user_full_name', userData['full_name'] ?? '');
     await prefs.setString('user_email', userData['email'] ?? '');
     await prefs.setString('user_phone', userData['phone_number'] ?? '');
-    await prefs.setString('user_role', userData['role'] ?? 'customer');
+    // Role is now stored with token in TokenStorage, not here
     await prefs.setBool('user_is_active', userData['is_active'] ?? true);
     await prefs.setBool('user_is_approved', userData['is_approved'] ?? true);
   }
 
-  Future<String?> getToken() async {
-    return await TokenStorage.getToken();
+  Future<String?> getToken({String? forRole}) async {
+    return await TokenStorage.getToken(forRole: forRole);
   }
 
   Future<String?> getUserId() async {

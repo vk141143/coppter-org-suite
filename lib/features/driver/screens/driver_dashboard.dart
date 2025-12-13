@@ -5,6 +5,7 @@ import '../../../shared/widgets/shimmer_loading.dart';
 import 'job_details_screen.dart';
 import 'pickup_in_progress_screen.dart';
 import 'driver_profile_screen.dart';
+import '../../../core/services/driver_service.dart';
 
 class DriverDashboard extends StatefulWidget {
   const DriverDashboard({super.key});
@@ -407,7 +408,9 @@ class DriverHome extends StatefulWidget {
 
 class _DriverHomeState extends State<DriverHome> {
   bool _isLoading = false;
-  bool _isOnline = true;
+  bool _isOnline = false;
+  final DriverService _driverService = DriverService();
+  List<Map<String, dynamic>> _todaysJobs = [];
 
   @override
   Widget build(BuildContext context) {
@@ -550,11 +553,7 @@ class _DriverHomeState extends State<DriverHome> {
           
           // Online Toggle Switch
           GestureDetector(
-            onTap: () {
-              setState(() {
-                _isOnline = !_isOnline;
-              });
-            },
+            onTap: _toggleOnlineStatus,
             child: Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -581,11 +580,7 @@ class _DriverHomeState extends State<DriverHome> {
                   ),
                   Switch(
                     value: _isOnline,
-                    onChanged: (value) {
-                      setState(() {
-                        _isOnline = value;
-                      });
-                    },
+                    onChanged: (value) => _toggleOnlineStatus(),
                   ),
                 ],
               ),
@@ -688,8 +683,8 @@ class _DriverHomeState extends State<DriverHome> {
                 ),
               ),
               TextButton(
-                onPressed: () {},
-                child: const Text('View All'),
+                onPressed: _loadJobs,
+                child: const Text('Refresh'),
               ),
             ],
           ),
@@ -698,56 +693,23 @@ class _DriverHomeState extends State<DriverHome> {
           
           _isLoading
               ? const ShimmerList(itemCount: 3, itemHeight: 100)
-              : ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: 3,
-                  itemBuilder: (context, index) {
-                    return _buildJobCard(theme, index);
-                  },
-                ),
+              : _todaysJobs.isEmpty
+                  ? const Center(child: Text('No jobs available'))
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _todaysJobs.length,
+                      itemBuilder: (context, index) {
+                        return _buildJobCardFromData(theme, _todaysJobs[index]);
+                      },
+                    ),
         ],
       ),
     );
   }
 
-  Widget _buildJobCard(ThemeData theme, int index) {
-    final jobs = [
-      {
-        'id': 'WM001234',
-        'category': 'Household Waste',
-        'icon': '🏠',
-        'address': '123 Main Street',
-        'time': '10:30 AM',
-        'status': 'Assigned',
-        'priority': 'High',
-      },
-      {
-        'id': 'WM001235',
-        'category': 'Recyclables',
-        'icon': '♻️',
-        'address': '456 Oak Avenue',
-        'time': '2:15 PM',
-        'status': 'Pending',
-        'priority': 'Medium',
-      },
-      {
-        'id': 'WM001236',
-        'category': 'Garden Waste',
-        'icon': '🌱',
-        'address': '789 Pine Road',
-        'time': '4:00 PM',
-        'status': 'Pending',
-        'priority': 'Low',
-      },
-    ];
-
-    final job = jobs[index];
-    final priorityColor = job['priority'] == 'High'
-        ? Colors.red
-        : job['priority'] == 'Medium'
-            ? Colors.orange
-            : Colors.green;
+  Widget _buildJobCardFromData(ThemeData theme, Map<String, dynamic> job) {
+    final priorityColor = Colors.orange;
 
     return CustomCard(
       margin: const EdgeInsets.only(bottom: 12),
@@ -755,7 +717,7 @@ class _DriverHomeState extends State<DriverHome> {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => JobDetailsScreen(jobId: job['id']!),
+            builder: (context) => JobDetailsScreen(jobId: job['id']?.toString() ?? ''),
           ),
         );
       },
@@ -771,11 +733,8 @@ class _DriverHomeState extends State<DriverHome> {
                   color: theme.colorScheme.primary.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Center(
-                  child: Text(
-                    job['icon']!,
-                    style: const TextStyle(fontSize: 24),
-                  ),
+                child: const Center(
+                  child: Icon(Icons.work_outline, size: 24),
                 ),
               ),
               
@@ -789,10 +748,12 @@ class _DriverHomeState extends State<DriverHome> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          job['category']!,
+                          job['description'] ?? 'No description',
                           style: theme.textTheme.titleMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -800,13 +761,13 @@ class _DriverHomeState extends State<DriverHome> {
                             vertical: 4,
                           ),
                           decoration: BoxDecoration(
-                            color: priorityColor.withOpacity(0.1),
+                            color: Colors.green.withOpacity(0.1),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            job['priority']!,
-                            style: TextStyle(
-                              color: priorityColor,
+                            '£${job['amount'] ?? 0}',
+                            style: const TextStyle(
+                              color: Colors.green,
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
                             ),
@@ -818,7 +779,7 @@ class _DriverHomeState extends State<DriverHome> {
                     const SizedBox(height: 4),
                     
                     Text(
-                      'ID: ${job['id']}',
+                      'ID: ${job['id'] ?? 'N/A'}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurface.withOpacity(0.6),
                       ),
@@ -841,20 +802,8 @@ class _DriverHomeState extends State<DriverHome> {
               const SizedBox(width: 4),
               Expanded(
                 child: Text(
-                  job['address']!,
+                  job['pickup_location'] ?? 'No location',
                   style: theme.textTheme.bodySmall,
-                ),
-              ),
-              Icon(
-                Icons.access_time,
-                size: 16,
-                color: theme.colorScheme.onSurface.withOpacity(0.6),
-              ),
-              const SizedBox(width: 4),
-              Text(
-                job['time']!,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  fontWeight: FontWeight.w500,
                 ),
               ),
             ],
@@ -865,112 +814,168 @@ class _DriverHomeState extends State<DriverHome> {
   }
 
   Widget _buildRecentActivity(ThemeData theme) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Recent Activity',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          
-          const SizedBox(height: 16),
-          
-          CustomCard(
-            child: Column(
-              children: [
-                _buildActivityItem(
-                  theme,
-                  Icons.check_circle,
-                  'Completed pickup at 456 Oak Avenue',
-                  '2 hours ago',
-                  Colors.green,
-                ),
-                const Divider(),
-                _buildActivityItem(
-                  theme,
-                  Icons.assignment_turned_in,
-                  'Accepted new job WM001237',
-                  '3 hours ago',
-                  theme.colorScheme.primary,
-                ),
-                const Divider(),
-                _buildActivityItem(
-                  theme,
-                  Icons.star,
-                  'Received 5-star rating from customer',
-                  '5 hours ago',
-                  Colors.amber,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActivityItem(ThemeData theme, IconData icon, String title, String time, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              icon,
-              color: color,
-              size: 16,
-            ),
-          ),
-          
-          const SizedBox(width: 12),
-          
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  time,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withOpacity(0.6),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 
   Future<void> _handleRefresh() async {
-    setState(() {
-      _isLoading = true;
-    });
+    await _loadJobs();
+  }
+
+  Future<void> _loadJobs() async {
+    if (!_isOnline) return;
     
-    // Simulate API call
-    await Future.delayed(const Duration(seconds: 2));
+    setState(() => _isLoading = true);
     
-    if (mounted) {
+    try {
+      final jobs = await _driverService.getAvailableIssues();
+      if (mounted) {
+        setState(() {
+          _todaysJobs = jobs;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading jobs: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleOnlineStatus() async {
+    if (!_isOnline) {
+      // Going online - fetch and show available issues
+      try {
+        final issues = await _driverService.getAvailableIssues();
+        if (mounted) {
+          setState(() {
+            _isOnline = true;
+            _todaysJobs = issues;
+          });
+          _showAvailableIssuesDialog(issues);
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error: ${e.toString()}')),
+          );
+        }
+      }
+    } else {
+      // Going offline
       setState(() {
-        _isLoading = false;
+        _isOnline = false;
+        _todaysJobs = [];
       });
     }
+  }
+
+  void _showAvailableIssuesDialog(List<Map<String, dynamic>> issues) {
+    final theme = Theme.of(context);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.work_outline, color: theme.colorScheme.primary),
+            const SizedBox(width: 8),
+            const Text('Available Jobs'),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 400,
+          child: issues.isEmpty
+              ? const Center(child: Text('No jobs available'))
+              : ListView.builder(
+                  itemCount: issues.length,
+                  itemBuilder: (context, index) {
+                    final issue = issues[index];
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'ID: ${issue['id'] ?? 'N/A'}',
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green.withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '£${issue['amount'] ?? 0}',
+                                    style: const TextStyle(
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              issue['description'] ?? 'No description',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                const Icon(Icons.location_on, size: 16, color: Colors.grey),
+                                const SizedBox(width: 4),
+                                Expanded(
+                                  child: Text(
+                                    issue['pickup_location'] ?? 'No location',
+                                    style: const TextStyle(fontSize: 12),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ElevatedButton(
+                              onPressed: () {
+                                Navigator.pop(context);
+                                // Accept job logic here
+                              },
+                              style: ElevatedButton.styleFrom(
+                                minimumSize: const Size(double.infinity, 36),
+                              ),
+                              child: const Text('Accept Job'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _driverService.dispose();
+    super.dispose();
   }
 }
 

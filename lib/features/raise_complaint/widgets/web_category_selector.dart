@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import '../../../core/constants/app_constants.dart';
+import '../../../core/services/category_service.dart';
 
 class WebCategorySelector extends StatefulWidget {
   final String? selectedCategory;
-  final Function(String) onCategorySelected;
+  final List<Map<String, dynamic>> categories;
+  final Function(String categoryName, int categoryId) onCategorySelected;
 
-  const WebCategorySelector({super.key, this.selectedCategory, required this.onCategorySelected});
+  const WebCategorySelector({super.key, this.selectedCategory, required this.categories, required this.onCategorySelected});
 
   @override
   State<WebCategorySelector> createState() => _WebCategorySelectorState();
@@ -18,7 +19,15 @@ class _WebCategorySelectorState extends State<WebCategorySelector> {
   @override
   void initState() {
     super.initState();
-    _filteredCategories = AppConstants.wasteCategories;
+    _filteredCategories = widget.categories;
+  }
+
+  @override
+  void didUpdateWidget(WebCategorySelector oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.categories != widget.categories) {
+      _filteredCategories = widget.categories;
+    }
   }
 
   @override
@@ -38,29 +47,32 @@ class _WebCategorySelectorState extends State<WebCategorySelector> {
           onChanged: _filterCategories,
         ),
         const SizedBox(height: 16),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-            childAspectRatio: 2.5,
-          ),
-          itemCount: _filteredCategories.length,
-          itemBuilder: (context, index) => _buildCategoryCard(theme, _filteredCategories[index]),
-        ),
+        _filteredCategories.isEmpty
+            ? const Center(child: Text('No categories found'))
+            : GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 2.5,
+                ),
+                itemCount: _filteredCategories.length,
+                itemBuilder: (context, index) => _buildCategoryCard(theme, _filteredCategories[index]),
+              ),
       ],
     );
   }
 
   Widget _buildCategoryCard(ThemeData theme, Map<String, dynamic> category) {
-    final isSelected = widget.selectedCategory == category['name'];
+    final categoryName = category['name'] ?? category['category_name'] ?? '';
+    final isSelected = widget.selectedCategory == categoryName;
     
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GestureDetector(
-        onTap: () => widget.onCategorySelected(category['name']),
+        onTap: () => widget.onCategorySelected(categoryName, category['id']),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           padding: const EdgeInsets.all(12),
@@ -75,11 +87,11 @@ class _WebCategorySelectorState extends State<WebCategorySelector> {
           ),
           child: Row(
             children: [
-              Text(category['icon'], style: const TextStyle(fontSize: 24)),
+              Text(category['icon'] ?? '📦', style: const TextStyle(fontSize: 24)),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  category['name'],
+                  categoryName,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                     color: isSelected ? theme.colorScheme.primary : null,
@@ -96,9 +108,13 @@ class _WebCategorySelectorState extends State<WebCategorySelector> {
   }
 
   void _filterCategories(String query) {
+    if (!mounted) return;
     setState(() {
-      _filteredCategories = AppConstants.wasteCategories
-          .where((cat) => cat['name'].toString().toLowerCase().contains(query.toLowerCase()))
+      _filteredCategories = widget.categories
+          .where((cat) {
+            final name = cat['name'] ?? cat['category_name'] ?? '';
+            return name.toString().toLowerCase().contains(query.toLowerCase());
+          })
           .toList();
     });
   }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../../../core/services/api_helper.dart';
 
 class WebPricingEstimator extends StatefulWidget {
   final String category;
@@ -31,25 +32,65 @@ class _WebPricingEstimatorState extends State<WebPricingEstimator> {
   Map<String, dynamic>? _priceEstimate;
 
   Future<void> _estimatePrice() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _priceEstimate = null;
     });
 
-    final payload = {
+    // Backend required fields only
+    final Map<String, dynamic> payload = {
       'category': widget.category,
-      'quantity': _quantityController.text.isEmpty ? 'Not specified' : _quantityController.text,
       'location': widget.location,
-      'distance_km': double.tryParse(_distanceController.text) ?? 3.0,
-      'urgency': _urgency,
-      'floor_info': _floorInfo,
-      'city': _cityController.text.isEmpty ? 'Not specified' : _cityController.text,
-      'zone': _zoneController.text.isEmpty ? 'Not specified' : _zoneController.text,
-      'vehicle_size': _vehicleSize,
     };
+    
+    // Add optional fields if provided
+    if (_quantityController.text.isNotEmpty) {
+      payload['quantity'] = _quantityController.text;
+    }
+    if (_distanceController.text.isNotEmpty) {
+      payload['distance_km'] = double.tryParse(_distanceController.text) ?? 3.0;
+    }
+    if (_cityController.text.isNotEmpty) {
+      payload['city'] = _cityController.text;
+    }
+    if (_zoneController.text.isNotEmpty) {
+      payload['zone'] = _zoneController.text;
+    }
 
-    // Use mock estimation directly
-    _generateMockEstimate(payload);
+    try {
+      // Validate customer token exists
+      final hasToken = await ApiHelper.hasValidToken('customer');
+      if (!hasToken) {
+        if (kDebugMode) print('❌ No valid customer token found');
+        throw Exception('Customer authentication required');
+      }
+      
+      // Use ApiHelper which auto-detects and validates customer token
+      final response = await ApiHelper.post('/customer/issue', body: payload);
+      
+      if (kDebugMode) {
+        print('📥 Response status: ${response.statusCode}');
+        print('📥 Response body: ${response.body}');
+      }
+      
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        final data = jsonDecode(response.body);
+        if (!mounted) return;
+        setState(() {
+          _priceEstimate = data;
+          _isLoading = false;
+        });
+      } else {
+        // Fallback to mock if API fails
+        if (kDebugMode) print('⚠️ API failed, using mock estimate');
+        _generateMockEstimate(payload);
+      }
+    } catch (e) {
+      if (kDebugMode) print('❌ Error calling API: $e');
+      // Fallback to mock on error
+      _generateMockEstimate(payload);
+    }
   }
 
   void _generateMockEstimate(Map<String, dynamic> payload) {
@@ -68,17 +109,27 @@ class _WebPricingEstimatorState extends State<WebPricingEstimator> {
     double basePrice = basePrices[payload['category']] ?? 45.0;
     double distance = payload['distance_km'] ?? 3.0;
     
-    // Calculate multipliers
-    double urgencyMultiplier = payload['urgency'] == 'Emergency' ? 1.5 : (payload['urgency'] == 'Fast' ? 1.3 : 1.0);
-    double vehicleMultiplier = payload['vehicle_size'] == 'Mini Truck' ? 1.4 : 1.0;
-    double floorMultiplier = 1.0;
+    // Calculate multipliers with null checks
+    double urgencyMultiplier = 1.0;
+    if (payload['urgency'] != null) {
+      urgencyMultiplier = payload['urgency'] == 'Emergency' ? 1.5 : (payload['urgency'] == 'Fast' ? 1.3 : 1.0);
+    }
     
-    if (payload['floor_info'].contains('3+')) {
-      floorMultiplier = 1.3;
-    } else if (payload['floor_info'].contains('2nd')) {
-      floorMultiplier = 1.2;
-    } else if (payload['floor_info'].contains('1st')) {
-      floorMultiplier = 1.1;
+    double vehicleMultiplier = 1.0;
+    if (payload['vehicle_size'] != null && payload['vehicle_size'] == 'Mini Truck') {
+      vehicleMultiplier = 1.4;
+    }
+    
+    double floorMultiplier = 1.0;
+    final floorInfo = payload['floor_info'];
+    if (floorInfo != null) {
+      if (floorInfo.toString().contains('3+')) {
+        floorMultiplier = 1.3;
+      } else if (floorInfo.toString().contains('2nd')) {
+        floorMultiplier = 1.2;
+      } else if (floorInfo.toString().contains('1st')) {
+        floorMultiplier = 1.1;
+      }
     }
 
     double distanceCost = distance * 4.5;
@@ -90,6 +141,7 @@ class _WebPricingEstimatorState extends State<WebPricingEstimator> {
 
     double totalBase = basePrice + distanceCost + laborCost + disposalCost + urgencyCost + vehicleCost + floorCost;
     
+    if (!mounted) return;
     setState(() {
       _priceEstimate = {
         'estimated_price_min': (totalBase * 0.85).round(),
@@ -171,17 +223,17 @@ class _WebPricingEstimatorState extends State<WebPricingEstimator> {
           const SizedBox(height: 16),
           
           _buildDropdown('Urgency', _urgency, ['Standard', 'Fast', 'Emergency'], (val) {
-            setState(() => _urgency = val!);
+            if (mounted) setState(() => _urgency = val!);
           }),
           const SizedBox(height: 16),
           
           _buildDropdown('Vehicle Size', _vehicleSize, ['Auto', 'Mini Truck'], (val) {
-            setState(() => _vehicleSize = val!);
+            if (mounted) setState(() => _vehicleSize = val!);
           }),
           const SizedBox(height: 16),
           
           _buildDropdown('Floor/Stairs', _floorInfo, ['Ground Floor', '1st Floor', '2nd Floor', '3+ Floors', 'Elevator Available'], (val) {
-            setState(() => _floorInfo = val!);
+            if (mounted) setState(() => _floorInfo = val!);
           }),
           const SizedBox(height: 24),
           

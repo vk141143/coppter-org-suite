@@ -11,6 +11,7 @@ import 'core/blocs/driver/driver_bloc.dart';
 import 'core/blocs/admin/admin_bloc.dart';
 import 'core/providers/language_provider.dart';
 import 'features/auth/screens/animated_intro_screen.dart';
+import 'features/auth/screens/login_screen.dart';
 import 'features/user/screens/user_dashboard.dart';
 import 'features/driver/screens/driver_main_screen.dart';
 import 'features/admin/screens/admin_dashboard.dart';
@@ -47,21 +48,33 @@ class WasteManagementApp extends StatelessWidget {
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,
           themeMode: themeProvider.themeMode,
-          home: FutureBuilder<Widget>(
-            future: _getInitialScreen(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Scaffold(body: Center(child: CircularProgressIndicator()));
-              }
-              return snapshot.data ?? const AnimatedIntroScreen();
-            },
-          ),
+          routes: {
+            '/': (context) => FutureBuilder<Widget>(
+              future: _getInitialScreen(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                }
+                return snapshot.data ?? const AnimatedIntroScreen();
+              },
+            ),
+            '/login': (context) => const LoginScreen(),
+            '/dashboard': (context) => const UserDashboard(),
+            '/driver': (context) => const DriverMainScreen(),
+            '/admin': (context) => const AdminDashboard(),
+          },
+          initialRoute: '/',
         ),
       ),
     );
   }
 
   Future<Widget> _getInitialScreen() async {
-    return await RoleNavigator.getInitialScreen();
+    try {
+      return await RoleNavigator.getInitialScreen();
+    } catch (e) {
+      debugPrint('❌ Error getting initial screen: $e');
+      return const LoginScreen();
+    }
   }
 }

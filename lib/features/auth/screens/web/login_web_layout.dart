@@ -60,6 +60,7 @@ class _LoginWebLayoutState extends State<LoginWebLayout> {
               if (_otpController.isSheetVisible)
                 CurvedOtpSheet(
                   phoneNumber: _phoneNumber,
+                  userType: _userType,
                   onVerified: () {
                     Widget dashboard;
                     if (_userType == 'Driver') {

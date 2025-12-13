@@ -1,39 +1,30 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../utils/token_storage.dart';
 import 'mock_auth_service.dart';
-import '../config/app_config.dart';
+import 'api_helper.dart';
 
 class CategoryService {
-  static String get _baseUrl => AppConfig.technicianBaseUrl;
 
-  Future<List<Map<String, dynamic>>> getCategories() async {
-    final token = await TokenStorage.getToken();
+  Future<List<Map<String, dynamic>>> getCategories({bool forceCustomer = false, bool forceAdmin = false}) async {
+    final role = await TokenStorage.getRoleWithFallback();
     
-    // If no token, return mock data immediately
-    if (token == null || token.isEmpty) {
-      if (kDebugMode) print('⚠️ No token found - using mock data');
-      if (MockAuthService.isMockEnabled) {
-        return await MockAuthService.mockGetCategories();
-      }
-      throw Exception('Please login first');
+    if (kDebugMode) print('🔑 Current role: $role');
+    
+    // Determine endpoint
+    String endpoint;
+    if (forceAdmin) {
+      endpoint = '/admin/categories/';
+    } else if (forceCustomer || role == 'customer') {
+      endpoint = '/categories/';
+    } else if (role == 'admin') {
+      endpoint = '/admin/categories/';
+    } else {
+      endpoint = '/categories/';
     }
     
-    final url = Uri.parse('$_baseUrl/admin/categories/');
-    
-    if (kDebugMode) {
-      print('📡 GET Request: $url');
-      print('🔑 Token: ${token.substring(0, token.length > 20 ? 20 : token.length)}... (length: ${token.length})');
-    }
-    
-    final response = await http.get(
-      url,
-      headers: {
-        'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-    );
+    if (kDebugMode) print('📡 Fetching categories from: $endpoint');
+    final response = await ApiHelper.get(endpoint);
     
     if (kDebugMode) {
       print('📥 Response status: ${response.statusCode}');
@@ -43,22 +34,17 @@ class CategoryService {
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = jsonDecode(response.body);
       if (data is List) {
+        if (kDebugMode) print('✅ Loaded ${data.length} categories');
         return List<Map<String, dynamic>>.from(data);
       }
       return [];
-    } else if (response.statusCode == 403) {
-      if (kDebugMode) print('❌ 403 Forbidden - Token invalid or expired');
-      
-      // Use mock for development
-      if (MockAuthService.isMockEnabled && token != null && token.startsWith('mock_')) {
-        if (kDebugMode) print('🎭 Using mock categories data');
-        return await MockAuthService.mockGetCategories();
-      }
-      
-      await TokenStorage.clearToken();
+    } else if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) print('❌ ${response.statusCode} - Authentication failed for endpoint: $endpoint');
       throw Exception('Authentication failed. Please login again.');
     } else {
-      throw Exception('Failed to get categories');
+      final errorMsg = response.body.isNotEmpty ? response.body : 'Failed to get categories';
+      if (kDebugMode) print('❌ Error: $errorMsg');
+      throw Exception(errorMsg);
     }
   }
 
@@ -66,22 +52,12 @@ class CategoryService {
     required String name,
     required String imageUrl,
   }) async {
-    final token = await TokenStorage.getToken();
-    final url = Uri.parse('$_baseUrl/admin/categories/');
-    
-    if (kDebugMode) print('📡 POST Request: $url');
-    
-    final response = await http.post(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
+    final response = await ApiHelper.post(
+      '/admin/categories/',
+      body: {
         'name': name,
         'image_url': imageUrl,
-      }),
+      },
     );
     
     if (kDebugMode) {
@@ -91,12 +67,14 @@ class CategoryService {
     
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return jsonDecode(response.body);
-    } else if (response.statusCode == 403) {
-      if (kDebugMode) print('❌ 403 Forbidden - Token invalid or expired');
+    } else if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) print('❌ ${response.statusCode} - Authentication failed');
       await TokenStorage.clearToken();
+      await TokenStorage.saveUserRole('');
       throw Exception('Authentication failed. Please login again.');
     } else {
-      throw Exception('Failed to create category');
+      final errorMsg = response.body.isNotEmpty ? response.body : 'Failed to create category';
+      throw Exception(errorMsg);
     }
   }
 
@@ -106,23 +84,13 @@ class CategoryService {
     required String imageUrl,
     required bool isActive,
   }) async {
-    final token = await TokenStorage.getToken();
-    final url = Uri.parse('$_baseUrl/admin/categories/$id/');
-    
-    if (kDebugMode) print('📡 PUT Request: $url');
-    
-    final response = await http.put(
-      url,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-      body: jsonEncode({
+    final response = await ApiHelper.patch(
+      '/admin/categories/$id/',
+      body: {
         'name': name,
         'image_url': imageUrl,
         'is_active': isActive,
-      }),
+      },
     );
     
     if (kDebugMode) {
@@ -132,39 +100,32 @@ class CategoryService {
     
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return jsonDecode(response.body);
-    } else if (response.statusCode == 403) {
-      if (kDebugMode) print('❌ 403 Forbidden - Token invalid or expired');
+    } else if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) print('❌ ${response.statusCode} - Authentication failed');
       await TokenStorage.clearToken();
+      await TokenStorage.saveUserRole('');
       throw Exception('Authentication failed. Please login again.');
     } else {
-      throw Exception('Failed to update category');
+      final errorMsg = response.body.isNotEmpty ? response.body : 'Failed to update category';
+      throw Exception(errorMsg);
     }
   }
 
   Future<void> deleteCategory(int id) async {
-    final token = await TokenStorage.getToken();
-    final url = Uri.parse('$_baseUrl/admin/categories/$id/');
-    
-    if (kDebugMode) print('📡 DELETE Request: $url');
-    
-    final response = await http.delete(
-      url,
-      headers: {
-        'Accept': 'application/json',
-        if (token != null) 'Authorization': 'Bearer $token',
-      },
-    );
+    final response = await ApiHelper.delete('/admin/categories/$id/');
     
     if (kDebugMode) {
       print('📥 Response status: ${response.statusCode}');
     }
     
-    if (response.statusCode == 403) {
-      if (kDebugMode) print('❌ 403 Forbidden - Token invalid or expired');
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      if (kDebugMode) print('❌ ${response.statusCode} - Authentication failed');
       await TokenStorage.clearToken();
+      await TokenStorage.saveUserRole('');
       throw Exception('Authentication failed. Please login again.');
     } else if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception('Failed to delete category');
+      final errorMsg = response.body.isNotEmpty ? response.body : 'Failed to delete category';
+      throw Exception(errorMsg);
     }
   }
 

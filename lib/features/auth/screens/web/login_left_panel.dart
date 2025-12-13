@@ -235,26 +235,63 @@ class _LoginLeftPanelState extends State<LoginLeftPanel> with SingleTickerProvid
   }
 
   void _handleLogin() async {
+    if (kDebugMode) print('🔴 WEB LOGIN BUTTON PRESSED!');
+    
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
     
     try {
       final authService = AuthService();
-      await authService.login(
+      final result = await authService.login(
         _phoneController.text,
         _selectedUserType,
         password: _selectedUserType == 'Admin' ? 'admin123' : null,
       );
+      
+      if (kDebugMode) print('✅ Web login successful: $result');
+      
+      if (mounted) {
+        setState(() => _isLoading = false);
+        if (widget.onOtpRequested != null) {
+          widget.onOtpRequested!(_phoneController.text, _selectedUserType);
+        } else {
+          if (kDebugMode) print('🚀 ATTEMPTING to navigate to OTP screen...');
+          if (kDebugMode) print('📱 Phone: ${_phoneController.text}');
+          if (kDebugMode) print('👥 User type: $_selectedUserType');
+          
+          try {
+            if (kDebugMode) print('🔄 Calling Navigator.push...');
+            final result = await Navigator.push(
+              context, 
+              MaterialPageRoute(
+                builder: (context) {
+                  if (kDebugMode) print('🏗️ Building OTP screen widget...');
+                  return OTPScreen(
+                    phoneNumber: _phoneController.text, 
+                    userType: _selectedUserType
+                  );
+                }
+              )
+            );
+            
+            if (kDebugMode) print('✅ Navigation completed, result: $result');
+          } catch (e) {
+            if (kDebugMode) print('❌ Navigation failed: $e');
+          }
+        }
+      }
     } catch (e) {
-      if (kDebugMode) print('Login error: $e');
-    }
-    
-    if (mounted) {
-      setState(() => _isLoading = false);
-      if (widget.onOtpRequested != null) {
-        widget.onOtpRequested!(_phoneController.text, _selectedUserType);
-      } else {
-        Navigator.push(context, MaterialPageRoute(builder: (context) => OTPScreen(phoneNumber: _phoneController.text, userType: _selectedUserType)));
+      if (kDebugMode) print('❌ Web login error: $e');
+      
+      if (mounted) {
+        setState(() => _isLoading = false);
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceAll('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }

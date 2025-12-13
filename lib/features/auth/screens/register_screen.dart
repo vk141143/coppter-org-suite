@@ -7,6 +7,8 @@ import 'otp_screen.dart';
 import 'driver_registration_screen.dart';
 import 'web/register_web_layout.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/customer_api_service.dart';
+import '../../../core/utils/customer_validators.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -234,11 +236,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
             decoration: const InputDecoration(
               labelText: 'Address',
               prefixIcon: Icon(Icons.location_on_outlined),
+              helperText: 'Minimum 10 characters required',
             ),
-            validator: (value) {
-              if (value?.isEmpty ?? true) return 'Please enter your address';
-              return null;
-            },
+            validator: CustomerValidators.validateAddress,
           ),
           const SizedBox(height: 16),
           TextFormField(
@@ -328,42 +328,45 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   void _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
+    if (!_acceptTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please accept terms and conditions'), backgroundColor: Colors.red),
+      );
+      return;
+    }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
-      final authService = AuthService();
-      final response = await authService.registerCustomer(
-        fullName: _nameController.text.trim(),
+      final customerService = CustomerApiService();
+      final response = await customerService.registerCustomer(
+        name: _nameController.text.trim(),
         email: _emailController.text.trim(),
-        phoneNumber: _phoneController.text.trim(),
+        phone: _phoneController.text.trim(),
         address: _addressController.text.trim(),
         password: _passwordController.text,
       );
       
-      if (mounted) {
-        if (response['success'] == true) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OTPScreen(
-                phoneNumber: _phoneController.text.trim(),
-                userType: 'customer',
-                isRegistration: true,
-              ),
+      if (mounted && response['success'] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(response['message'] ?? 'Registration successful'), backgroundColor: const Color(0xFF0F5132)),
+        );
+        
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => OTPScreen(
+              phoneNumber: _phoneController.text.trim(),
+              userType: 'Customer',
+              isRegistration: true,
             ),
-          );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(response['message'] ?? 'OTP sent to your phone'), backgroundColor: Color(0xFF0F5132)),
-          );
-        }
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+          SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.red),
         );
       }
     } finally {

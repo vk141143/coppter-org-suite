@@ -8,6 +8,7 @@ import '../../admin/screens/admin_dashboard.dart';
 import 'register_screen.dart';
 import 'forgot_password_screen.dart';
 import 'otp_screen.dart';
+import 'customer_email_login_screen.dart';
 import 'web/login_web_layout.dart';
 import '../../../core/services/auth_service.dart';
 
@@ -179,6 +180,25 @@ class _LoginScreenState extends State<LoginScreen> {
                 
                 const SizedBox(height: 24),
                 
+                // Email Login Link for Customers
+                if (_selectedUserType == 'Customer')
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const CustomerEmailLoginScreen(),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.email),
+                      label: const Text('Login with Email & Password'),
+                    ),
+                  ),
+                
+                const SizedBox(height: 16),
+                
                 // Register Link
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -213,33 +233,71 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+    if (kDebugMode) print('🔴 LOGIN BUTTON PRESSED!');
+    
+    if (!_formKey.currentState!.validate()) {
+      if (kDebugMode) print('❌ Form validation failed');
+      return;
+    }
 
+    if (kDebugMode) print('🔴 Setting loading state...');
     setState(() => _isLoading = true);
 
     try {
+      if (kDebugMode) print('🔴 Creating AuthService...');
       final authService = AuthService();
-      await authService.login(
+      
+      if (kDebugMode) print('🔴 Calling login API...');
+      final result = await authService.login(
         _phoneController.text,
         _selectedUserType,
         password: _selectedUserType == 'Admin' ? 'admin123' : null,
       );
-    } catch (e) {
-      if (kDebugMode) print('Login error: $e');
+      
+      if (kDebugMode) print('✅ Login API completed: $result');
+      if (kDebugMode) print('🔴 CHECKPOINT 1: After API call');
+      if (kDebugMode) print('🔴 CHECKPOINT 2: About to check mounted state');
+      if (kDebugMode) print('🔍 About to navigate to OTP screen...');
+      
+      if (mounted) {
+        if (kDebugMode) print('🔴 Widget is mounted, proceeding...');
+        setState(() => _isLoading = false);
+        if (kDebugMode) print('🚀 Navigating to OTP screen for $_selectedUserType');
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) {
+              if (kDebugMode) print('🏗️ Building OTP screen...');
+              return OTPScreen(
+                phoneNumber: _phoneController.text,
+                userType: _selectedUserType,
+              );
+            },
+          ),
+        );
+        if (kDebugMode) print('✅ Navigation call completed');
+      } else {
+        if (kDebugMode) print('❌ Widget not mounted - cannot navigate');
+      }
+    } catch (e, stackTrace) {
+      if (kDebugMode) print('❌ Login error: $e');
+      if (kDebugMode) print('❌ Stack trace: $stackTrace');
+      
+      if (mounted) {
+        setState(() => _isLoading = false);
+        
+        String errorMessage = e.toString().replaceAll('Exception: ', '');
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
     
-    if (mounted) {
-      setState(() => _isLoading = false);
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OTPScreen(
-            phoneNumber: _phoneController.text,
-            userType: _selectedUserType,
-          ),
-        ),
-      );
-    }
+    if (kDebugMode) print('🔴 _handleLogin method completed');
   }
 
   @override
